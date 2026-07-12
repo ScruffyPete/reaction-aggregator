@@ -2,17 +2,17 @@
 
 `reaction-aggregator` is the **Aggregate** step of a biometric-reaction analytics pipeline (neuromarketing). Test viewers watch ad creatives; an upstream system (Hume-style expression measurement) scores their facial and vocal emotional reactions over time, producing a raw reaction — roughly 48 expression scores per timestamp per channel. This service reads those already-scored reactions from an OLTP source, transforms them, and loads a queryable star-schema warehouse (OLAP).
 
-The unit of work is one session — one viewer watching one creative — covering around 120,000 rows. The system runs as a batch ETL job, one job per session. Downstream consumers are analytical stakeholders querying the warehouse with SQL or Python and engineers extending the pipeline with new dimensions.
+The unit of work is one session — one viewer watching one creative. The system runs as a batch ETL job, one job per session.
 
 ## Design document and scoping
 
-The original design document and scoping diagram lives on [Excalidraw](https://excalidraw.com/#json=diof58VivoKLBX0D3wWe3,wWmGggddie2mgVoWwacMHw) — architecture sketch, star-schema layout, and the scope boundaries this pass was built against.
+The original design document and scoping diagram lives on [Excalidraw](https://excalidraw.com/#json=diof58VivoKLBX0D3wWe3,wWmGggddie2mgVoWwacMHw).
 
 ---
 
 ## How to run
 
-**House rule: Python never runs on the host. Use Docker for everything.**
+Docker is the supported way to run this project; no local Python setup is required.
 
 ### Run the pipeline
 
@@ -36,8 +36,6 @@ just test
 # raw Docker
 docker build --target test .
 ```
-
-The full pytest suite and coverage gate (90% on `app/domain` + `app/application`) execute inside the container as a build step. Tests run against the shipped in-memory fake adapters seeded with demo data; real adapters (DuckDB/SQL) are a future swap-in inside `build_adapters()` only.
 
 ---
 
@@ -79,13 +77,9 @@ reaction-aggregator/
 
 ## How to extend: adding a dimension
 
-Adding a new dimension requires exactly three touches; the pipeline, ports, and other dimensions stay untouched.
-
-1. **New entity and mapping** — add the entity to `app/domain/models.py` (a Pydantic model) and create `app/domain/mappings/<name>.py` (a `Mapping` subclass implementing `extract` and `transform`).
-2. **Source adapter label** — add the new label to `SourceDescriptor` in `app/domain/ports/source.py` and teach the source adapter how to serve it (a dict entry in `FakeSource`; a SQL query in future real adapters).
-3. **Registry** — append one line to `REGISTRY` in `app/application/registry.py`.
-
-The extensibility property is tested: `k` mappings produce `k` dimension tables plus one fact table, all handed to the warehouse in a single atomic load, and adding a `(k+1)`th mapping scales that without any change to pipeline code.
+1. **Entity and mapping** — add the entity to `app/domain/models.py` and create `app/domain/mappings/<name>.py` with a `Mapping` subclass implementing `extract` and `transform`.
+2. **Source label** — add the label to `SourceDescriptor` in `app/domain/ports/source.py` and serve it from the source adapter (a dict entry in `FakeSource`).
+3. **Registry** — append the mapping to `REGISTRY` in `app/application/registry.py`.
 
 ---
 
