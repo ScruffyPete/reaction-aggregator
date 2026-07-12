@@ -3,13 +3,15 @@ name = "reaction-aggregator"
 version = "0.1.0"
 description = "Aggregate step: session-scoped ETL from scored biometric reactions to a star-schema warehouse"
 requires-python = ">=3.13"
-dependencies = ["pydantic>=2.7"]
+dependencies = ["pydantic>=2.7", "duckdb>=1.0"]
 
 [project.scripts]
 reaction-aggregator = "app.main:main"
+seed-source = "app.seed:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "pytest-cov>=5"]
+notebook = ["jupyterlab>=4", "matplotlib>=3", "pandas>=2"]
 
 [build-system]
 requires = ["hatchling"]
