@@ -7,8 +7,8 @@ class FakeWarehouse:
     def __init__(self) -> None:
         self.loads: list[DimensionTable | FactTable] = []
 
-    def load(self, table: DimensionTable | FactTable) -> None:
-        self.loads.append(table)
+    def load(self, tables: tuple[DimensionTable | FactTable, ...]) -> None:
+        self.loads.extend(tables)
 
     def rows_for(self, name: str) -> list[BaseModel]:
         result: list[BaseModel] = []

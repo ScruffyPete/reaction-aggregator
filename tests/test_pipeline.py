@@ -233,9 +233,10 @@ def test_dimensions_dict_keyed_by_table_name(fake_warehouse: FakeWarehouse) -> N
 
 
 # ---------------------------------------------------------------------------
-# Duplicate table name: last-writer-wins in the dimensions dict, but the
-# warehouse still receives one load per mapping. The registry is the real
-# guard against collisions; this test documents the corner behaviour.
+# Duplicate table name: the dict collapses duplicates before the single batch
+# load, so only the last mapping's table reaches the warehouse. The registry
+# is the real guard against collisions; this test documents the corner
+# behaviour.
 # ---------------------------------------------------------------------------
 
 class _KeyedDummyMapping(Mapping):
@@ -261,12 +262,102 @@ def test_duplicate_table_name_last_writer_wins(
     fact_builder = DummyFactBuilder()
     run_pipeline(source, fake_warehouse, [first, last], fact_builder)
 
-    # Warehouse receives one load per mapping (2 dimensions) plus the fact (1) = 3.
-    assert len(fake_warehouse.loads) == 3
-    dim_names = [t.name for t in fake_warehouse.loads if isinstance(t, DimensionTable)]
-    assert dim_names == ["dim_dup", "dim_dup"]
+    # Duplicates collapse in the dict before the single batch load: warehouse
+    # receives 2 tables total — one dim_dup (last mapping's) plus the fact.
+    assert len(fake_warehouse.loads) == 2
+    assert isinstance(fake_warehouse.loads[0], DimensionTable)
+    assert fake_warehouse.loads[0].name == "dim_dup"
+    assert fake_warehouse.loads[0].key == "last_key"
+    assert isinstance(fake_warehouse.loads[1], FactTable)
 
     # The dimensions dict keyed by name collapses to a single entry holding the
     # LAST mapping's table (last-writer-wins).
     assert set(fact_builder.last_dimensions.keys()) == {"dim_dup"}
     assert fact_builder.last_dimensions["dim_dup"].key == "last_key"
+
+
+# ---------------------------------------------------------------------------
+# Atomicity and ETL phasing — a failed run writes nothing; the load is a
+# single call
+# ---------------------------------------------------------------------------
+
+class _FailingTransformMapping(DummyMapping):
+    """Extracts normally (recorded via DummyMapping) but always fails in transform."""
+
+    def transform(self, rows: list[RawRow]) -> DimensionTable:
+        raise RuntimeError("transform failure")
+
+
+class _FailingFactBuilder:
+    """Always fails when called."""
+
+    def __call__(
+        self,
+        dimensions: dict[str, DimensionTable],
+        raw_reactions: list[RawRow],
+    ) -> FactTable:
+        raise RuntimeError("fact builder failure")
+
+
+class _CountingFakeWarehouse(FakeWarehouse):
+    """Thin wiring recorder: counts load calls, delegates via super()."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.load_call_count = 0
+
+    def load(self, tables: tuple[DimensionTable | FactTable, ...]) -> None:
+        self.load_call_count += 1
+        super().load(tables)
+
+
+def test_fact_builder_failure_writes_nothing(fake_warehouse: FakeWarehouse) -> None:
+    mappings = [DummyMapping("dim_a"), DummyMapping("dim_b")]
+    source = FakeSource(_SEEDED)
+    fact_builder = _FailingFactBuilder()
+
+    with pytest.raises(RuntimeError):
+        run_pipeline(source, fake_warehouse, mappings, fact_builder)
+
+    assert fake_warehouse.loads == []
+
+
+def test_mapping_transform_failure_writes_nothing(fake_warehouse: FakeWarehouse) -> None:
+    mappings = [DummyMapping("dim_a"), _FailingTransformMapping("dim_b")]
+    source = FakeSource(_SEEDED)
+    fact_builder = DummyFactBuilder()
+
+    with pytest.raises(RuntimeError):
+        run_pipeline(source, fake_warehouse, mappings, fact_builder)
+
+    assert fake_warehouse.loads == []
+
+
+def test_warehouse_load_called_exactly_once_per_run() -> None:
+    warehouse = _CountingFakeWarehouse()
+    mappings = [DummyMapping("dim_a"), DummyMapping("dim_b")]
+    source = FakeSource(_SEEDED)
+    fact_builder = DummyFactBuilder()
+    run_pipeline(source, warehouse, mappings, fact_builder)
+
+    assert warehouse.load_call_count == 1
+    assert len(warehouse.loads) == 3
+
+
+def test_all_extracts_complete_before_any_transform_failure(
+    fake_warehouse: FakeWarehouse,
+) -> None:
+    mapping_a = DummyMapping("dim_a")
+    mapping_b = _FailingTransformMapping("dim_b")
+    mappings = [mapping_a, mapping_b]
+    source = FakeSource(_SEEDED)
+    fact_builder = DummyFactBuilder()
+
+    with pytest.raises(RuntimeError):
+        run_pipeline(source, fake_warehouse, mappings, fact_builder)
+
+    # Both extracts completed before any transform ran.
+    assert mapping_a.extract_call_count == 1
+    assert mapping_b.extract_call_count == 1
+    # The transform phase began (first mapping's transform ran) before failing.
+    assert mapping_a.transform_call_count == 1
