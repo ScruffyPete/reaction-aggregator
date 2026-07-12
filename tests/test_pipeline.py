@@ -2,8 +2,8 @@ from collections.abc import Callable
 
 import pytest
 
-from app.adapters.fake_source import FakeSource
-from app.adapters.fake_warehouse import FakeWarehouse
+from app.adapters.mock_source import MockSource
+from app.adapters.mock_warehouse import MockWarehouse
 from app.application.pipeline import run_pipeline
 from app.domain.mapping import Mapping
 from app.domain.ports.source import BaseSource, RawRow, SourceDescriptor
@@ -23,11 +23,11 @@ _SEEDED: dict[SourceDescriptor, list[RawRow]] = {
 
 
 # ---------------------------------------------------------------------------
-# Fetch-counting FakeSource subclass — used only where data-based assertions
+# Fetch-counting MockSource subclass — used only where data-based assertions
 # cannot prove "fetched exactly once" (a wiring property, not a data property).
 # ---------------------------------------------------------------------------
 
-class _CountingFakeSource(FakeSource):
+class _CountingMockSource(MockSource):
     """Thin wiring recorder: counts fetch calls per descriptor, delegates via super()."""
 
     def __init__(self, data: dict[SourceDescriptor, list[RawRow]]) -> None:
@@ -86,43 +86,43 @@ class DummyFactBuilder:
 # ---------------------------------------------------------------------------
 
 def test_each_mapping_extracted_transformed_loaded_exactly_once(
-    fake_warehouse: FakeWarehouse,
+    mock_warehouse: MockWarehouse,
 ) -> None:
     mappings = [DummyMapping("dim_a"), DummyMapping("dim_b")]
-    source = FakeSource(_SEEDED)
+    source = MockSource(_SEEDED)
     fact_builder = DummyFactBuilder()
-    run_pipeline(source, fake_warehouse, mappings, fact_builder)
+    run_pipeline(source, mock_warehouse, mappings, fact_builder)
 
     for m in mappings:
         assert m.extract_call_count == 1
         assert m.transform_call_count == 1
 
     # first two loads are dim tables
-    dim_names = [t.name for t in fake_warehouse.loads[:2]]
+    dim_names = [t.name for t in mock_warehouse.loads[:2]]
     assert dim_names == ["dim_a", "dim_b"]
 
 
 def test_warehouse_receives_dimensions_then_fact_last(
-    fake_warehouse: FakeWarehouse,
+    mock_warehouse: MockWarehouse,
 ) -> None:
     mappings = [DummyMapping("dim_a"), DummyMapping("dim_b")]
-    source = FakeSource(_SEEDED)
+    source = MockSource(_SEEDED)
     fact_builder = DummyFactBuilder()
-    run_pipeline(source, fake_warehouse, mappings, fact_builder)
+    run_pipeline(source, mock_warehouse, mappings, fact_builder)
 
-    assert len(fake_warehouse.loads) == 3  # 2 dimensions + 1 fact
-    assert isinstance(fake_warehouse.loads[0], DimensionTable)
-    assert isinstance(fake_warehouse.loads[1], DimensionTable)
-    assert isinstance(fake_warehouse.loads[2], FactTable)
+    assert len(mock_warehouse.loads) == 3  # 2 dimensions + 1 fact
+    assert isinstance(mock_warehouse.loads[0], DimensionTable)
+    assert isinstance(mock_warehouse.loads[1], DimensionTable)
+    assert isinstance(mock_warehouse.loads[2], FactTable)
 
 
 def test_fact_builder_called_exactly_once_with_all_dimensions_and_reactions(
-    fake_warehouse: FakeWarehouse,
+    mock_warehouse: MockWarehouse,
 ) -> None:
     mappings = [DummyMapping("dim_a"), DummyMapping("dim_b")]
-    source = FakeSource(_SEEDED)
+    source = MockSource(_SEEDED)
     fact_builder = DummyFactBuilder()
-    run_pipeline(source, fake_warehouse, mappings, fact_builder)
+    run_pipeline(source, mock_warehouse, mappings, fact_builder)
 
     assert fact_builder.call_count == 1
     assert set(fact_builder.last_dimensions.keys()) == {"dim_a", "dim_b"}
@@ -130,24 +130,24 @@ def test_fact_builder_called_exactly_once_with_all_dimensions_and_reactions(
     assert fact_builder.last_raw_reactions == expected_reactions
 
 
-def test_reactions_fetched_exactly_once(fake_warehouse: FakeWarehouse) -> None:
+def test_reactions_fetched_exactly_once(mock_warehouse: MockWarehouse) -> None:
     mappings = [DummyMapping("dim_a"), DummyMapping("dim_b")]
-    source = _CountingFakeSource(_SEEDED)
+    source = _CountingMockSource(_SEEDED)
     fact_builder = DummyFactBuilder()
-    run_pipeline(source, fake_warehouse, mappings, fact_builder)
+    run_pipeline(source, mock_warehouse, mappings, fact_builder)
 
     assert source.fetch_counts.get(SourceDescriptor.REACTIONS, 0) == 1
 
 
 def test_mappings_processed_in_registry_list_order(
-    fake_warehouse: FakeWarehouse,
+    mock_warehouse: MockWarehouse,
 ) -> None:
     mappings = [DummyMapping(f"dim_{i}") for i in range(3)]
-    source = FakeSource(_SEEDED)
+    source = MockSource(_SEEDED)
     fact_builder = DummyFactBuilder()
-    run_pipeline(source, fake_warehouse, mappings, fact_builder)
+    run_pipeline(source, mock_warehouse, mappings, fact_builder)
 
-    loaded_dim_names = [t.name for t in fake_warehouse.loads if isinstance(t, DimensionTable)]
+    loaded_dim_names = [t.name for t in mock_warehouse.loads if isinstance(t, DimensionTable)]
     assert loaded_dim_names == ["dim_0", "dim_1", "dim_2"]
 
 
@@ -156,17 +156,17 @@ def test_mappings_processed_in_registry_list_order(
 # ---------------------------------------------------------------------------
 
 def test_zero_mappings_still_builds_and_loads_fact(
-    fake_warehouse: FakeWarehouse,
+    mock_warehouse: MockWarehouse,
 ) -> None:
-    source = _CountingFakeSource(_SEEDED)
+    source = _CountingMockSource(_SEEDED)
     fact_builder = DummyFactBuilder()
-    run_pipeline(source, fake_warehouse, [], fact_builder)
+    run_pipeline(source, mock_warehouse, [], fact_builder)
 
     # reactions must still be fetched
     assert source.fetch_counts.get(SourceDescriptor.REACTIONS, 0) >= 1
     # only one load: the fact
-    assert len(fake_warehouse.loads) == 1
-    assert isinstance(fake_warehouse.loads[0], FactTable)
+    assert len(mock_warehouse.loads) == 1
+    assert isinstance(mock_warehouse.loads[0], FactTable)
     # fact builder called with empty dimensions
     assert fact_builder.call_count == 1
     assert fact_builder.last_dimensions == {}
@@ -181,8 +181,8 @@ def test_zero_mappings_still_builds_and_loads_fact(
 def test_extensibility_property(k: int) -> None:
     """k mappings → k dim loads + 1 fact load; dimensions dict has k entries."""
     mappings_k = [DummyMapping(f"dim_{i}") for i in range(k)]
-    source_k = FakeSource(_SEEDED)
-    warehouse_k = FakeWarehouse()
+    source_k = MockSource(_SEEDED)
+    warehouse_k = MockWarehouse()
     fact_builder_k = DummyFactBuilder()
     run_pipeline(source_k, warehouse_k, mappings_k, fact_builder_k)
 
@@ -192,8 +192,8 @@ def test_extensibility_property(k: int) -> None:
 
     # k+1 version
     mappings_k1 = [DummyMapping(f"dim_{i}") for i in range(k + 1)]
-    source_k1 = FakeSource(_SEEDED)
-    warehouse_k1 = FakeWarehouse()
+    source_k1 = MockSource(_SEEDED)
+    warehouse_k1 = MockWarehouse()
     fact_builder_k1 = DummyFactBuilder()
     run_pipeline(source_k1, warehouse_k1, mappings_k1, fact_builder_k1)
 
@@ -206,11 +206,11 @@ def test_extensibility_property(k: int) -> None:
 # transform receives extract's rows (pass-through honesty check)
 # ---------------------------------------------------------------------------
 
-def test_transform_receives_rows_from_extract(fake_warehouse: FakeWarehouse) -> None:
+def test_transform_receives_rows_from_extract(mock_warehouse: MockWarehouse) -> None:
     mapping = DummyMapping("dim_a")
-    source = FakeSource(_SEEDED)
+    source = MockSource(_SEEDED)
     fact_builder = DummyFactBuilder()
-    run_pipeline(source, fake_warehouse, [mapping], fact_builder)
+    run_pipeline(source, mock_warehouse, [mapping], fact_builder)
 
     expected = _SEEDED[SourceDescriptor.VIEWER]
     assert mapping.last_transform_rows == expected
@@ -220,11 +220,11 @@ def test_transform_receives_rows_from_extract(fake_warehouse: FakeWarehouse) -> 
 # dimensions dict uses table.name as key (not mapping order or class name)
 # ---------------------------------------------------------------------------
 
-def test_dimensions_dict_keyed_by_table_name(fake_warehouse: FakeWarehouse) -> None:
+def test_dimensions_dict_keyed_by_table_name(mock_warehouse: MockWarehouse) -> None:
     mappings = [DummyMapping("alpha"), DummyMapping("beta")]
-    source = FakeSource(_SEEDED)
+    source = MockSource(_SEEDED)
     fact_builder = DummyFactBuilder()
-    run_pipeline(source, fake_warehouse, mappings, fact_builder)
+    run_pipeline(source, mock_warehouse, mappings, fact_builder)
 
     assert "alpha" in fact_builder.last_dimensions
     assert "beta" in fact_builder.last_dimensions
@@ -254,21 +254,21 @@ class _KeyedDummyMapping(Mapping):
 
 
 def test_duplicate_table_name_last_writer_wins(
-    fake_warehouse: FakeWarehouse,
+    mock_warehouse: MockWarehouse,
 ) -> None:
     first = _KeyedDummyMapping("dim_dup", key="first_key")
     last = _KeyedDummyMapping("dim_dup", key="last_key")
-    source = FakeSource(_SEEDED)
+    source = MockSource(_SEEDED)
     fact_builder = DummyFactBuilder()
-    run_pipeline(source, fake_warehouse, [first, last], fact_builder)
+    run_pipeline(source, mock_warehouse, [first, last], fact_builder)
 
     # Duplicates collapse in the dict before the single batch load: warehouse
     # receives 2 tables total — one dim_dup (last mapping's) plus the fact.
-    assert len(fake_warehouse.loads) == 2
-    assert isinstance(fake_warehouse.loads[0], DimensionTable)
-    assert fake_warehouse.loads[0].name == "dim_dup"
-    assert fake_warehouse.loads[0].key == "last_key"
-    assert isinstance(fake_warehouse.loads[1], FactTable)
+    assert len(mock_warehouse.loads) == 2
+    assert isinstance(mock_warehouse.loads[0], DimensionTable)
+    assert mock_warehouse.loads[0].name == "dim_dup"
+    assert mock_warehouse.loads[0].key == "last_key"
+    assert isinstance(mock_warehouse.loads[1], FactTable)
 
     # The dimensions dict keyed by name collapses to a single entry holding the
     # LAST mapping's table (last-writer-wins).
@@ -299,7 +299,7 @@ class _FailingFactBuilder:
         raise RuntimeError("fact builder failure")
 
 
-class _CountingFakeWarehouse(FakeWarehouse):
+class _CountingMockWarehouse(MockWarehouse):
     """Thin wiring recorder: counts load calls, delegates via super()."""
 
     def __init__(self) -> None:
@@ -311,32 +311,32 @@ class _CountingFakeWarehouse(FakeWarehouse):
         super().load(tables)
 
 
-def test_fact_builder_failure_writes_nothing(fake_warehouse: FakeWarehouse) -> None:
+def test_fact_builder_failure_writes_nothing(mock_warehouse: MockWarehouse) -> None:
     mappings = [DummyMapping("dim_a"), DummyMapping("dim_b")]
-    source = FakeSource(_SEEDED)
+    source = MockSource(_SEEDED)
     fact_builder = _FailingFactBuilder()
 
     with pytest.raises(RuntimeError):
-        run_pipeline(source, fake_warehouse, mappings, fact_builder)
+        run_pipeline(source, mock_warehouse, mappings, fact_builder)
 
-    assert fake_warehouse.loads == []
+    assert mock_warehouse.loads == []
 
 
-def test_mapping_transform_failure_writes_nothing(fake_warehouse: FakeWarehouse) -> None:
+def test_mapping_transform_failure_writes_nothing(mock_warehouse: MockWarehouse) -> None:
     mappings = [DummyMapping("dim_a"), _FailingTransformMapping("dim_b")]
-    source = FakeSource(_SEEDED)
+    source = MockSource(_SEEDED)
     fact_builder = DummyFactBuilder()
 
     with pytest.raises(RuntimeError):
-        run_pipeline(source, fake_warehouse, mappings, fact_builder)
+        run_pipeline(source, mock_warehouse, mappings, fact_builder)
 
-    assert fake_warehouse.loads == []
+    assert mock_warehouse.loads == []
 
 
 def test_warehouse_load_called_exactly_once_per_run() -> None:
-    warehouse = _CountingFakeWarehouse()
+    warehouse = _CountingMockWarehouse()
     mappings = [DummyMapping("dim_a"), DummyMapping("dim_b")]
-    source = FakeSource(_SEEDED)
+    source = MockSource(_SEEDED)
     fact_builder = DummyFactBuilder()
     run_pipeline(source, warehouse, mappings, fact_builder)
 
@@ -345,16 +345,16 @@ def test_warehouse_load_called_exactly_once_per_run() -> None:
 
 
 def test_all_extracts_complete_before_any_transform_failure(
-    fake_warehouse: FakeWarehouse,
+    mock_warehouse: MockWarehouse,
 ) -> None:
     mapping_a = DummyMapping("dim_a")
     mapping_b = _FailingTransformMapping("dim_b")
     mappings = [mapping_a, mapping_b]
-    source = FakeSource(_SEEDED)
+    source = MockSource(_SEEDED)
     fact_builder = DummyFactBuilder()
 
     with pytest.raises(RuntimeError):
-        run_pipeline(source, fake_warehouse, mappings, fact_builder)
+        run_pipeline(source, mock_warehouse, mappings, fact_builder)
 
     # Both extracts completed before any transform ran.
     assert mapping_a.extract_call_count == 1

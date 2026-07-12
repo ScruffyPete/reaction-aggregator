@@ -4,35 +4,35 @@ from __future__ import annotations
 import pytest
 from collections.abc import Callable
 
-from app.adapters.fake_source import FakeSource
-from app.adapters.fake_warehouse import FakeWarehouse
+from app.adapters.mock_source import MockSource
+from app.adapters.mock_warehouse import MockWarehouse
 from app.domain.models import DIM_SESSION, Session
 from app.domain.ports.source import RawRow, SourceDescriptor
 from app.domain.tables import DimensionTable
 
 
 # ---------------------------------------------------------------------------
-# Fake source — factory fixture wrapping the shipped FakeSource adapter
+# Mock source — factory fixture wrapping the shipped MockSource adapter
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def make_fake_source() -> Callable[[dict[SourceDescriptor, list[RawRow]]], FakeSource]:
-    """Factory fixture: call _make(data) to get a fresh FakeSource."""
+def make_mock_source() -> Callable[[dict[SourceDescriptor, list[RawRow]]], MockSource]:
+    """Factory fixture: call _make(data) to get a fresh MockSource."""
 
-    def _make(data: dict[SourceDescriptor, list[RawRow]]) -> FakeSource:
-        return FakeSource(data)
+    def _make(data: dict[SourceDescriptor, list[RawRow]]) -> MockSource:
+        return MockSource(data)
 
     return _make
 
 
 # ---------------------------------------------------------------------------
-# Fake warehouse — plain fixture returning the shipped FakeWarehouse adapter
+# Mock warehouse — plain fixture returning the shipped MockWarehouse adapter
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def fake_warehouse() -> FakeWarehouse:
-    """Return a fresh FakeWarehouse."""
-    return FakeWarehouse()
+def mock_warehouse() -> MockWarehouse:
+    """Return a fresh MockWarehouse."""
+    return MockWarehouse()
 
 
 # ---------------------------------------------------------------------------
@@ -103,3 +103,4 @@ def make_raw_reaction() -> Callable[..., dict]:
         return result
 
     return _make
+

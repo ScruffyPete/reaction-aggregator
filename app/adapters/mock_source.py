@@ -1,7 +1,7 @@
 from app.domain.ports.source import RawRow, SourceDescriptor
 
 
-class FakeSource:
+class MockSource:
     def __init__(self, data: dict[SourceDescriptor, list[RawRow]]) -> None:
         self._data = data
 

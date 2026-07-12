@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from app.domain.tables import DimensionTable, FactTable
 
 
-class FakeWarehouse:
+class MockWarehouse:
     def __init__(self) -> None:
         self.loads: list[DimensionTable | FactTable] = []
 
