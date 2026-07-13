@@ -93,9 +93,3 @@ reaction-aggregator/
 4. **Seeder** — add the table and synthetic rows to `app/seed.py` so the local stack serves the new label.
 
 The warehouse needs no change — `DuckDBWarehouse` derives each table's schema from the entity's fields and creates it inside the load transaction.
-
----
-
-## Design decisions
-
-See [docs/decisions.md](docs/decisions.md) for the full list of numbered architectural and convention decisions made during the design of this system.
