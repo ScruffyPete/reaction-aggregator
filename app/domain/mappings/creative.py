@@ -9,6 +9,8 @@ class CreativeMapping(Mapping):
         return source.fetch(SourceDescriptor.CREATIVE)
 
     def transform(self, rows: list[RawRow]) -> DimensionTable:
+        if not rows:
+            raise ValueError("no creative rows in source")
         seen: dict[str, Creative] = {}
         for row in rows:
             raw_id = row.get("id")

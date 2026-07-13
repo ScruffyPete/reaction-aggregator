@@ -146,11 +146,9 @@ def test_result_metadata(session_mapping: SessionMapping) -> None:
     assert table.key == "session_id"
 
 
-def test_empty_input_returns_empty_rows(session_mapping: SessionMapping) -> None:
-    table = session_mapping.transform([])
-    assert table.rows == ()
-    assert table.name == DIM_SESSION
-    assert table.key == "session_id"
+def test_empty_input_raises_value_error(session_mapping: SessionMapping) -> None:
+    with pytest.raises(ValueError):
+        session_mapping.transform([])
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +157,7 @@ def test_empty_input_returns_empty_rows(session_mapping: SessionMapping) -> None
 
 def test_extract_fetches_session_descriptor_rows(
     session_mapping: SessionMapping,
-    make_fake_source: Callable,
+    make_mock_source: Callable,
 ) -> None:
     # Seed two descriptors with distinct rows; extract must return exactly the
     # SESSION rows — proving the mapping fetched the SESSION descriptor, not VIEWER.
@@ -167,7 +165,7 @@ def test_extract_fetches_session_descriptor_rows(
         {"id": "s1", "viewer_id": "v1", "creative_id": "c1", "started_at": "2024-01-01T00:00:00Z"},
     ]
     viewer_rows: list[RawRow] = [{"id": "v1", "country_code": "US"}]
-    source = make_fake_source({
+    source = make_mock_source({
         SourceDescriptor.SESSION: session_rows,
         SourceDescriptor.VIEWER: viewer_rows,
     })

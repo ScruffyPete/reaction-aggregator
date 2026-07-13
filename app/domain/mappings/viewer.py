@@ -9,6 +9,8 @@ class ViewerMapping(Mapping):
         return source.fetch(SourceDescriptor.VIEWER)
 
     def transform(self, rows: list[RawRow]) -> DimensionTable:
+        if not rows:
+            raise ValueError("no viewer rows in source")
         seen: dict[str, Viewer] = {}
         for row in rows:
             raw_id = row.get("id")

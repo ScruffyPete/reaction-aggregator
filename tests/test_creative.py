@@ -112,11 +112,9 @@ def test_result_metadata(creative_mapping: CreativeMapping) -> None:
     assert result.key == "creative_id"
 
 
-def test_empty_input(creative_mapping: CreativeMapping) -> None:
-    result = creative_mapping.transform([])
-    assert result.name == DIM_CREATIVE
-    assert result.key == "creative_id"
-    assert result.rows == ()
+def test_empty_input_raises(creative_mapping: CreativeMapping) -> None:
+    with pytest.raises(ValueError):
+        creative_mapping.transform([])
 
 
 # ---------------------------------------------------------------------------
@@ -125,13 +123,13 @@ def test_empty_input(creative_mapping: CreativeMapping) -> None:
 
 def test_extract_fetches_creative_descriptor_rows(
     creative_mapping: CreativeMapping,
-    make_fake_source: Callable,
+    make_mock_source: Callable,
 ) -> None:
     # Seed two descriptors with distinct rows; extract must return exactly the
     # CREATIVE rows — proving the mapping fetched the CREATIVE descriptor, not VIEWER.
     creative_rows: list[RawRow] = [{"id": "c12", "title": "Canned"}]
     viewer_rows: list[RawRow] = [{"id": "v1", "country_code": "US"}]
-    source = make_fake_source({
+    source = make_mock_source({
         SourceDescriptor.CREATIVE: creative_rows,
         SourceDescriptor.VIEWER: viewer_rows,
     })

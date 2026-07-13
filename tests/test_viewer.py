@@ -1,8 +1,6 @@
+import pytest
 from collections.abc import Callable
 
-import pytest
-
-from app.adapters.fake_source import FakeSource
 from app.domain.mappings.viewer import ViewerMapping
 from app.domain.models import DIM_VIEWER, Viewer
 from app.domain.ports.source import RawRow, SourceDescriptor
@@ -102,11 +100,9 @@ def test_result_metadata(viewer_mapping: ViewerMapping) -> None:
     assert table.key == "viewer_id"
 
 
-def test_empty_input(viewer_mapping: ViewerMapping) -> None:
-    table = viewer_mapping.transform([])
-    assert table.rows == ()
-    assert table.name == DIM_VIEWER
-    assert table.key == "viewer_id"
+def test_empty_input_raises_value_error(viewer_mapping: ViewerMapping) -> None:
+    with pytest.raises(ValueError):
+        viewer_mapping.transform([])
 
 
 def test_country_code_renamed_to_country(viewer_mapping: ViewerMapping) -> None:
@@ -122,13 +118,13 @@ def test_country_code_renamed_to_country(viewer_mapping: ViewerMapping) -> None:
 
 def test_extract_fetches_viewer_descriptor_rows(
     viewer_mapping: ViewerMapping,
-    make_fake_source: Callable,
+    make_mock_source: Callable,
 ) -> None:
     # Seed two descriptors with distinct rows; extract must return exactly the
     # VIEWER rows — proving the mapping fetched the VIEWER descriptor, not SESSION.
     viewer_rows: list[RawRow] = [{"id": "v1", "country_code": "US"}]
     session_rows: list[RawRow] = [{"id": "s1", "viewer_id": "v1", "creative_id": "c1"}]
-    source = make_fake_source({
+    source = make_mock_source({
         SourceDescriptor.VIEWER: viewer_rows,
         SourceDescriptor.SESSION: session_rows,
     })

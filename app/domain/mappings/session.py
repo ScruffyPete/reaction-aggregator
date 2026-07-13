@@ -9,6 +9,8 @@ class SessionMapping(Mapping):
         return source.fetch(SourceDescriptor.SESSION)
 
     def transform(self, rows: list[RawRow]) -> DimensionTable:
+        if not rows:
+            raise ValueError("no session rows in source")
         seen: dict[str, Session] = {}
         for row in rows:
             raw_id = row.get("id")
