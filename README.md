@@ -24,9 +24,17 @@ just test        # full pytest suite + coverage gate, inside the container
 just reset       # wipe all data and re-seed the default session
 ```
 
-`seed` and `run` take an optional session id (`just run my-session`). Every recipe is a thin wrapper over Compose — `just run my-session` = `docker compose run --build --rm aggregate my-session`.
+Every recipe is a thin wrapper over Compose, so `just` is optional — the raw commands are:
 
-Each seeded session is one viewer watching one creative, both drawn deterministically from small fixed pools — seed and run a few sessions to give the notebook's viewer-attribute breakdowns and cross-creative comparisons something to compare.
+| Recipe | Equivalent command |
+|---|---|
+| `just seed [session_id]` | `docker compose run --build --rm seed [session_id]` |
+| `just run [session_id]` | `docker compose run --build --rm aggregate [session_id]` |
+| `just notebook` | `docker compose up --build jupyter` |
+| `just test` | `docker build --target test -t reaction-aggregator:test .` |
+| `just reset` | `rm -rf data && docker compose run --build --rm seed` |
+
+`seed` and `run` take an optional session id; omit it to use the default (a fixed uuid5, `20c8716c-29c0-59ae-b99a-64810c01ee8f`). Each seeded session is one viewer watching one creative, both drawn deterministically from small fixed pools — seed and run a few sessions to give the notebook's viewer-attribute breakdowns and cross-creative comparisons something to compare.
 
 ### Notes
 
