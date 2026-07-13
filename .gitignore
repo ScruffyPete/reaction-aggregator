@@ -217,3 +217,7 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 .idea/
+
+# Project data
+data/
+.ipynb_checkpoints/

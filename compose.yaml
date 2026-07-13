@@ -1,0 +1,27 @@
+services:
+  aggregate:
+    build:
+      context: .
+      target: runtime
+    volumes:
+      - ./data:/project/data
+
+  seed:
+    build:
+      context: .
+      target: runtime
+    entrypoint: ["uv", "run", "seed-source"]
+    volumes:
+      - ./data:/project/data
+
+  jupyter:
+    build:
+      context: .
+      target: notebook
+    environment:
+      WAREHOUSE_DATABASE_PATH: /project/data/warehouse.duckdb
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./data:/project/data
+      - ./notebooks:/project/notebooks
