@@ -6,36 +6,37 @@ The unit of work is one session — one viewer watching one creative. The system
 
 ## Design document and scoping
 
-The original design document and scoping diagram lives on [Excalidraw](https://excalidraw.com/#json=diof58VivoKLBX0D3wWe3,wWmGggddie2mgVoWwacMHw).
+The original design document and scoping diagram lives on [Excalidraw](https://excalidraw.com/#json=tCyAaLF2E9zBfUcNOQwQW,NrEhlFrMlra2id9E8nkOZw).
 
 ---
 
 ## How to run
 
-Docker is the supported way to run this project; no local Python setup is required.
+Everything runs in Docker — no local Python setup. The local stack is three Compose services sharing a `./data` volume: a one-shot `aggregate` job (the pipeline), a one-shot `seed` job (deterministic synthetic source data), and a long-running `jupyter` service.
 
-### Run the pipeline
-
-```bash
-# via just (default session: demo-session-1)
-just run
-
-# custom session
-just run my-session
-
-# raw Docker
-docker build -t reaction-aggregator . && docker run --rm reaction-aggregator <session_id>
-```
-
-### Run the tests
+### Quick start
 
 ```bash
-# via just
-just test
-
-# raw Docker
-docker build --target test .
+just seed        # generate synthetic source data (default: a fixed uuid5 session id)
+just run         # run the pipeline for the seeded session
+just notebook    # review the warehouse in JupyterLab on http://localhost:8888 (token disabled — local demo only)
+just test        # full pytest suite + coverage gate, inside the container
+just reset       # wipe all data and re-seed the default session
 ```
+
+`seed` and `run` take an optional session id (`just run my-session`). Every recipe is a thin wrapper over Compose — `just run my-session` = `docker compose run --build --rm aggregate my-session`.
+
+Each seeded session is one viewer watching one creative, both drawn deterministically from small fixed pools — seed and run a few sessions to give the notebook's viewer-attribute breakdowns and cross-creative comparisons something to compare.
+
+### Notes
+
+| Variable | Default | Description |
+|---|---|---|
+| `SOURCE_DATABASE_PATH` | `data/source.db` | Path to the SQLite source database |
+| `WAREHOUSE_DATABASE_PATH` | `data/warehouse.duckdb` | Path to the DuckDB warehouse file |
+
+- **DuckDB is single-writer**: one read-write connection or many read-only ones. If `just run` fails with `IO Error: Could not set lock`, another process has the warehouse open — restart the notebook kernel (or stop `just notebook`) and run one job at a time.
+- The containers run as root, so files under the bind-mounted `./data` are root-owned on the host; `just reset` may need `sudo` on Linux.
 
 ---
 
@@ -43,6 +44,7 @@ docker build --target test .
 
 ```
 reaction-aggregator/
+├── compose.yaml                       # Three-service local stack: aggregate job, seed job, jupyter service
 ├── app/
 │   ├── domain/                        # Pure business logic; no I/O, no framework
 │   │   ├── ports/
@@ -60,16 +62,24 @@ reaction-aggregator/
 │   │   ├── pipeline.py                # run_pipeline: extract all → transform all → one atomic load
 │   │   └── registry.py                # REGISTRY: ordered list of dimension Mapping instances
 │   ├── adapters/
-│   │   ├── fake_source.py             # FakeSource: dict-backed BaseSource; ships as this pass's real adapter
-│   │   └── fake_warehouse.py          # FakeWarehouse: in-memory write-only BaseWarehouse
-│   └── main.py                        # build_adapters(session_id) composition root + main() entry point
+│   │   ├── mock_source.py             # MockSource: dict-backed BaseSource; in-memory implementation for tests
+│   │   ├── mock_warehouse.py          # MockWarehouse: in-memory write-only BaseWarehouse; in-memory implementation for tests
+│   │   ├── sqlite_source.py           # SQLiteSource: SQLite-backed BaseSource (production wiring)
+│   │   └── duckdb_warehouse.py        # DuckDBWarehouse: DuckDB-backed BaseWarehouse; atomic batch load in one transaction
+│   ├── seed.py                        # Deterministic synthetic session seeder + seed-source entry point
+│   └── main.py                        # build_adapters(session_id, source_path, warehouse_path) composition root + main() entry point
+├── notebooks/
+│   └── warehouse_analysis.ipynb       # Analyst-facing star schema tour: creative timeline, viewer breakdowns, creative comparison
 └── tests/
-    ├── conftest.py                    # Shared fixtures: fake source/warehouse, raw-reaction/dimension factories
+    ├── conftest.py                    # Shared fixtures: mock source/warehouse, raw-reaction/dimension factories
     ├── test_pipeline.py               # Pipeline orchestration contract tests
     ├── test_viewer.py                 # ViewerMapping unit tests
     ├── test_creative.py               # CreativeMapping unit tests
     ├── test_session.py                # SessionMapping unit tests
     ├── test_fact_builder.py           # build_expression_fact unit tests
+    ├── test_seed.py                   # Seeder determinism, idempotency, and count-formula tests
+    ├── test_sqlite_source.py          # SQLiteSource unit tests against seeded SQLite files
+    ├── test_duckdb_warehouse.py       # DuckDBWarehouse unit tests: atomic load, upsert, replace-by-session
     └── test_smoke.py                  # End-to-end smoke tests through run_pipeline() and main()
 ```
 
@@ -78,8 +88,11 @@ reaction-aggregator/
 ## How to extend: adding a dimension
 
 1. **Entity and mapping** — add the entity to `app/domain/models.py` and create `app/domain/mappings/<name>.py` with a `Mapping` subclass implementing `extract` and `transform`.
-2. **Source label** — add the label to `SourceDescriptor` in `app/domain/ports/source.py` and serve it from the source adapter (a dict entry in `FakeSource`).
+2. **Source label and query** — add the label to `SourceDescriptor` in `app/domain/ports/source.py`; serve it from the source adapters: one parameterized query in `SQLiteSource`'s query map, one dict entry in `MockSource` seeds in tests.
 3. **Registry** — append the mapping to `REGISTRY` in `app/application/registry.py`.
+4. **Seeder** — add the table and synthetic rows to `app/seed.py` so the local stack serves the new label.
+
+The warehouse needs no change — `DuckDBWarehouse` derives each table's schema from the entity's fields and creates it inside the load transaction.
 
 ---
 
