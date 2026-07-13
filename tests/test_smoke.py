@@ -1,15 +1,16 @@
-"""Fakes-only end-to-end smoke tests through run_pipeline()."""
+"""Mocks-only end-to-end smoke tests through run_pipeline(); real-adapter main() path tests."""
 import sys
 
 import pytest
 
-from app.adapters.fake_source import FakeSource
-from app.adapters.fake_warehouse import FakeWarehouse
+from app.adapters.mock_source import MockSource
+from app.adapters.mock_warehouse import MockWarehouse
 from app.application.pipeline import run_pipeline
 from app.application.registry import REGISTRY
 from app.domain.fact import build_expression_fact
 from app.domain.models import DIM_CREATIVE, DIM_SESSION, DIM_VIEWER, FACT_EXPRESSION
 from app.domain.ports.source import SourceDescriptor
+from app.seed import seed_source
 
 
 # ---------------------------------------------------------------------------
@@ -20,8 +21,8 @@ SESSION_ID = "demo-session-1"
 
 
 @pytest.fixture()
-def seeded_adapters() -> tuple[FakeSource, FakeWarehouse]:
-    source = FakeSource(
+def seeded_adapters() -> tuple[MockSource, MockWarehouse]:
+    source = MockSource(
         data={
             SourceDescriptor.VIEWER: [
                 {"id": "v1", "age_bracket": "25-34", "gender": "f", "country_code": "PL"}
@@ -59,7 +60,7 @@ def seeded_adapters() -> tuple[FakeSource, FakeWarehouse]:
             ],
         }
     )
-    warehouse = FakeWarehouse()
+    warehouse = MockWarehouse()
     return source, warehouse
 
 
@@ -142,18 +143,58 @@ def test_main_missing_arg_exits_with_code_2(monkeypatch: pytest.MonkeyPatch) -> 
     assert exc_info.value.code == 2
 
 
-def test_main_happy_path_prints_row_counts(
+def test_main_happy_path_aggregates_session(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    tmp_path,
 ) -> None:
+    import duckdb
+
+    source_path = str(tmp_path / "source.db")
+    warehouse_path = str(tmp_path / "warehouse.duckdb")
+
+    seed_source(source_path, SESSION_ID, duration_ms=1000)
+
+    monkeypatch.setenv("SOURCE_DATABASE_PATH", source_path)
+    monkeypatch.setenv("WAREHOUSE_DATABASE_PATH", warehouse_path)
     monkeypatch.setattr(sys, "argv", ["reaction-aggregator", SESSION_ID])
+
     from app.main import main
     main()
 
-    out_lines = capsys.readouterr().out.splitlines()
-    assert out_lines == [
-        "dim_viewer: 1 rows",
-        "dim_creative: 1 rows",
-        "dim_session: 1 rows",
-        "fact_expression: 8 rows",
-    ]
+    assert capsys.readouterr().out == (
+        f"aggregating session {SESSION_ID}: {source_path} -> {warehouse_path}\n"
+        f"aggregated session {SESSION_ID}\n"
+    )
+
+    connection = duckdb.connect(warehouse_path, read_only=True)
+    try:
+        fact_count = connection.execute("SELECT COUNT(*) FROM fact_expression").fetchone()[0]
+        dim_viewer_count = connection.execute("SELECT COUNT(*) FROM dim_viewer").fetchone()[0]
+        dim_creative_count = connection.execute("SELECT COUNT(*) FROM dim_creative").fetchone()[0]
+        dim_session_count = connection.execute("SELECT COUNT(*) FROM dim_session").fetchone()[0]
+    finally:
+        connection.close()
+
+    assert fact_count == 1680
+    assert dim_viewer_count == 1
+    assert dim_creative_count == 1
+    assert dim_session_count == 1
+
+
+def test_main_unknown_session_id_fails_loudly(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    source_path = str(tmp_path / "source.db")
+    warehouse_path = str(tmp_path / "warehouse.duckdb")
+
+    seed_source(source_path, SESSION_ID, duration_ms=1000)
+
+    monkeypatch.setenv("SOURCE_DATABASE_PATH", source_path)
+    monkeypatch.setenv("WAREHOUSE_DATABASE_PATH", warehouse_path)
+    monkeypatch.setattr(sys, "argv", ["reaction-aggregator", "session-never-seeded"])
+
+    from app.main import main
+    with pytest.raises(ValueError):
+        main()
